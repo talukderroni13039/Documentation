@@ -1,0 +1,170 @@
+
+stages:
+  - setup 
+  - build
+  - upload
+  - deploy
+
+
+
+default:
+  interruptible: false
+
+variables:
+  VERSION: $MAJOR_VERSION.$MINOR_VERSION.$HOTFIX_VERSION.$CI_PIPELINE_IID
+
+  
+before_script:
+  - echo "${CI_REGISTRY}"
+  - echo "${CI_REGISTRY_USER}"
+  - echo "${CI_PROJECT_DIR}"
+  - echo "${CI_PROJECT_PATH}"
+  - echo "${CI_REGISTRY_IMAGE}"
+  - echo "${CI_REGISTRY_PASSWORD}"
+  - echo "${SSH_PRIVATE_KEY}"
+  - echo "${SSH_HOST}"
+  - echo "${SSH_USER}"
+  - echo "${LOG_DIR}"
+  - echo "${FE4_HOST}"
+  - echo "${FE4_HOST_PROD}"
+  - echo "${CONFIG_DIR_PROD}"
+  - echo "${LOG_DIR_PROD}"
+
+
+
+setup:
+  stage: setup
+  image: alpine:latest
+  script:
+     - echo "TAG=$TAG" >> .env
+  artifacts:
+    reports:
+      dotenv: .env
+  rules:
+  - if: $CI_COMMIT_BRANCH == "develop"
+    variables:
+      TAG: "develop"
+  - if: $CI_COMMIT_BRANCH == "qa"
+    variables:
+      TAG: "qa"
+  - if: $CI_COMMIT_BRANCH == "master"
+  #- if: $CI_COMMIT_BRANCH != "develop" && $CI_COMMIT_BRANCH != "qa" && $CI_COMMIT_BRANCH != "master"
+    variables:
+      TAG: $VERSION
+  - if: $CI_COMMIT_BRANCH != "develop" && $CI_COMMIT_BRANCH != "qa" && $CI_COMMIT_BRANCH != "master"
+  #- if: $CI_COMMIT_BRANCH == "master"
+    variables:
+      TAG: "latest"
+
+build-job: 
+  image: maven:3.8.5-openjdk-17
+  stage: build
+  tags:
+    - fe4-gateway-runner-prod
+  script:
+  - echo "Maven Build Step"
+  - mvn clean package -B
+  artifacts:
+    paths:
+      - target/*.jar
+
+upload-job:
+  stage: upload
+  image:
+    name: gcr.io/kaniko-project/executor:v1.14.0-debug
+    entrypoint: [""]
+  tags:
+    - fe4-gateway-runner-prod
+  script:
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}"
+      --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
+      --destination "${CI_REGISTRY_IMAGE}:${TAG}"
+
+#deploy-latest:
+#  stage: deploy
+#  image: ubuntu:latest
+#  tags:
+#    - fe4-gateway-runner
+#  script:    
+#    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+#    - eval $(ssh-agent -s)
+#    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add -
+#    - mkdir -p ~/.ssh 
+#    - chmod 700 ~/.ssh
+#    - ssh-keyscan $SSH_HOST >> ~/.ssh/known_hosts
+#    - chmod 644 ~/.ssh/known_hosts    
+#    - ssh $SSH_USER@$SSH_HOST "echo ${CI_REGISTRY_PASSWORD} | docker login ${CI_REGISTRY} -u "${CI_REGISTRY_USER}" --password-stdin && docker stop fe4-gateway || true && docker rm fe4-gateway || true && 
+#       docker rmi ${CI_REGISTRY_IMAGE}:latest || true &&
+#       docker run -e "SPRING_PROFILES_ACTIVE=uat" -d -p 8080:8080 -v ${LOG_DIR}:/logs --add-host=${FE4_HOST} --name fe4-gateway ${CI_REGISTRY_IMAGE}:latest && exit "
+#  rules:
+#    - if: $CI_COMMIT_BRANCH != "develop" && $CI_COMMIT_BRANCH != "qa" && $CI_COMMIT_BRANCH != "master"
+#   # - if: $CI_COMMIT_BRANCH == "master"
+#      when: on_success
+
+
+deploy-dev:
+  stage: deploy
+  image: ubuntu:latest
+  tags:
+    - fe4-gateway-runner
+  script:    
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh 
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $SSH_HOST >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts    
+    - ssh $SSH_USER@$SSH_HOST "echo ${CI_REGISTRY_PASSWORD}  | docker login ${CI_REGISTRY} -u "${CI_REGISTRY_USER}" --password-stdin && 
+       docker stop fe4-gateway || true && docker rm fe4-gateway || true && 
+       docker rmi ${CI_REGISTRY_IMAGE}:develop || true &&
+       docker run -e "SPRING_PROFILES_ACTIVE=uat" -d -p 8080:8080 -v ${LOG_DIR}:/logs --add-host=${FE4_HOST} --name fe4-gateway ${CI_REGISTRY_IMAGE}:develop && exit "
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+      when: on_success
+# UAT_LOG_DIR
+#deploy-qa:
+#  stage: deploy
+#  image: ubuntu:latest
+#  tags:
+#    - fe4-gateway-runner-qa
+#  script:    
+#    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+#    - eval $(ssh-agent -s)
+#    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add -
+#    - mkdir -p ~/.ssh 
+#    - chmod 700 ~/.ssh
+#    - ssh-keyscan $SSH_HOST >> ~/.ssh/known_hosts
+#    - chmod 644 ~/.ssh/known_hosts    
+#    - ssh $SSH_USER@$SSH_HOST "echo ${CI_REGISTRY_PASSWORD}  | docker login ${CI_REGISTRY} -u "${CI_REGISTRY_USER}" --password-stdin && 
+#       docker stop fe4-gateway || true && docker rm fe4-gateway || true && 
+#       docker rmi ${CI_REGISTRY_IMAGE}:qa || true &&
+#       docker run -e "SPRING_PROFILES_ACTIVE=uat" -d -p 8080:8080 -v ${LOG_DIR}:/logs --name fe4-gateway ${CI_REGISTRY_IMAGE}:qa && exit "
+#  rules:
+#    - if: $CI_COMMIT_BRANCH == "qa"
+#      when: on_success
+
+
+
+deploy-prod:
+  stage: deploy
+  image: ubuntu:latest
+  tags:
+    - fe4-gateway-runner-prod
+  script:    
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - echo "${SSH_PRIVATE_KEY_PROD}" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh 
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $SSH_HOST_PROD >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts    
+    - ssh $SSH_USER_PROD@$SSH_HOST_PROD "echo ${CI_REGISTRY_PASSWORD}   |  docker login ${CI_REGISTRY} -u "${CI_REGISTRY_USER}" --password-stdin && 
+        docker stop fe4-gateway || true &&  docker rm fe4-gateway || true && 
+        docker rmi ${CI_REGISTRY_IMAGE}:${VERSION} || true &&
+        docker run -e "SPRING_PROFILES_ACTIVE=production" -e "SPRING_CONFIG_ADDITIONAL-LOCATION=file:/config/" -d -p 8080:8080 -v ${LOG_DIR_PROD}:/logs -v ${CONFIG_DIR_PROD}:/config --add-host=${FE4_HOST_PROD} -e "JAVA_TOOL_OPTIONS=-Doracle.jdbc.timezoneAsRegion=false" --name fe4-gateway ${CI_REGISTRY_IMAGE}:${VERSION} && exit "
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+    #- if: $CI_COMMIT_BRANCH != "develop" && $CI_COMMIT_BRANCH != "qa" && $CI_COMMIT_BRANCH != "master"
+      when: on_success

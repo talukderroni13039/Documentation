@@ -1,0 +1,82 @@
+stages:
+  - build
+  - deploy-dev
+  - deploy-prod
+
+variables:
+  TAG_LATEST: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_NAME:latest
+  TAG_COMMIT: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_NAME:$CI_COMMIT_SHORT_SHA
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_DRIVER: overlay2
+
+build:
+  image: docker:latest
+  stage: build
+  services:
+    - docker:dind
+  tags:
+    - deployment
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "tj-enricher-phase1-master" || $CI_COMMIT_BRANCH == "tj-enricher-phase1-uat"'
+      when: on_success
+
+  script:
+    - echo $TAG_LATEST
+    - echo $TAG_COMMIT
+    - docker build -t $TAG_COMMIT -t $TAG_LATEST .
+    - echo "docker push startted"
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - docker push $TAG_COMMIT
+    - docker push $TAG_LATEST
+
+deploy-dev:
+  image: docker:latest
+  stage: deploy-dev
+  services:
+    - docker:dind
+  rules:
+    - if: $CI_COMMIT_BRANCH == "tj-enricher-phase1-uat"
+      when: on_success
+  tags:
+    - deployment
+  script:
+    - echo "server login started"
+    - echo "$UAT_ID_RSA" > /tmp/id_rsa.pem
+    - ls /tmp
+    - chmod 600 /tmp/id_rsa.pem
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $UAT_SERVER_USER@$UAT_SERVER_IP
+    - echo "login sucess"
+    
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $UAT_SERVER_USER@$UAT_SERVER_IP "docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY"
+    - echo "login to the server"
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $UAT_SERVER_USER@$UAT_SERVER_IP "docker pull $TAG_COMMIT"
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $UAT_SERVER_USER@$UAT_SERVER_IP "docker container rm -f message-processor || true"
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $UAT_SERVER_USER@$UAT_SERVER_IP "docker run -e "ASPNETCORE_ENVIRONMENT=uat" -d --name message-processor -v ${UAT_LOG_DIR}:/App/Logs $TAG_COMMIT"
+
+deploy-prod:
+  image: docker:latest
+  stage: deploy-prod
+  services:
+    - docker:dind
+  rules:
+    - if: $CI_COMMIT_BRANCH == "tj-enricher-phase1-master"
+      when: on_success
+  tags:
+    - prod-deployment
+  script:
+    - echo "${CONFIG_DIR_PROD}"
+    - echo "server login started"
+    - echo "$PROD_ID_RSA" > /tmp/id_rsa.pem
+    - ls /tmp
+    - chmod 600 /tmp/id_rsa.pem
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $PROD_SERVER_USER@$PROD_SERVER_IP "cat ${CONFIG_DIR_PROD}/appsettings.production.json" > /tmp/appsettings.production.json
+    - cat /tmp/appsettings.production.json
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $PROD_SERVER_USER@$PROD_SERVER_IP
+    - echo "login sucess"
+    
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $PROD_SERVER_USER@$PROD_SERVER_IP "docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY"
+    - echo "login to the server"
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $PROD_SERVER_USER@$PROD_SERVER_IP "docker pull $TAG_COMMIT"
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $PROD_SERVER_USER@$PROD_SERVER_IP "docker container rm -f message-processor || true"
+    - ssh -i /tmp/id_rsa.pem -o StrictHostKeyChecking=no $PROD_SERVER_USER@$PROD_SERVER_IP "docker run -e "ASPNETCORE_ENVIRONMENT=production"  -d --name message-processor -v ${CONFIG_DIR_PROD}/appsettings.production.json:/App/Config/appsettings.production.json $TAG_COMMIT"
+
