@@ -1,0 +1,21 @@
+go to the class library folder by cd command in console app
+
+--then write below command for library
+
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+dotnet add package Microsoft.EntityFrameworkCore.Design
+
+ex: 
+
+"ConnectionStrings": {
+     "MobileNetDB": "Server=10.216.101.199;Port=3306;Database=Fleetedge;User=root;Password=mtfbwy;UseCompression=True",
+     "FE4MobileNetDB": "Host=fe4-enrich-db.nhorbcomm.internal;Port=5432;Username=agregorin;Password=dba-gregorin;Database=HE_Enricher;"
+
+ }
+
+Scaffold-DbContext "Host=fe4-enrich-db.nhorbcomm.internal;Port=5432;Username=agregorin;Password=dba-gregorin;Database=HE_Enricher;" Npgsql.EntityFrameworkCore.PostgreSQL -OutputDir Models -Context EnricherDbContext
+
+
+
+ services.AddDbContext<EnricherDbContext>(options =>
+           options.UseNpgsql(configuration.GetConnectionString("FE4MobileNetDB")));
