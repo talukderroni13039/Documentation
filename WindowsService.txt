@@ -1,0 +1,10 @@
+  #Install	: SC CREATE "MsgProcessorService" binpath= "D:\Techjays\Projects\ORBCOMM\MessageProcessor\MessageProcessor\MsgProcessor\bin\Release\net8.0\publish\MsgProcessor.exe"
+  
+  #Unstall	: SC DELETE "MyService"
+  
+  #Start		: net start MsgProcessorService
+
+  #Stop		: net stop MyService
+  
+   #Kill		: Taskkill /PID 12068 /F
+

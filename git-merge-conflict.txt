@@ -1,0 +1,5 @@
+git fetch origin
+git checkout feature/uat-deployment-04-12-2024
+git merge feature/fe-8012-clean-machine-v1
+
+

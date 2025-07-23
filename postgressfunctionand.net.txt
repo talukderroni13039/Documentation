@@ -1,0 +1,204 @@
+SELECT * FROM public.get_filtered_company_hierarchy_history('FE4Test', 1, 200);
+  
+
+
+
+  
+CREATE OR REPLACE FUNCTION public.get_filtered_company_hierarchy_history(
+    _username character varying,
+    _watermark integer,
+    _record_limit integer DEFAULT 100
+)
+RETURNS TABLE (
+    "ID" bigint,
+    "CompanyID" bigint,
+    "Message" jsonb,
+    "Engine_make" character varying,
+    "Insert_Time" timestamp,
+    "Company_Type" text
+)
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH companydatabyuser AS (
+        SELECT
+            au.user_name,
+            au.engine_make,
+            au.company_type, -- This is an array
+            au.company_id AS user_company_id
+        FROM
+            api_user au
+        WHERE
+            au.user_name =_username  -- 'FE4Test'      --_username
+        LIMIT 1
+    ),
+    companyHierarchy AS (
+        -- Recursive CTE to find all companies in the hierarchy
+        WITH RECURSIVE company_tree AS (
+            -- Base case: Start with the user's company
+            SELECT
+                ah.company_id,
+                ah.parent_company_id,
+                ah.company_type,
+                1 AS level
+            FROM
+                API_COMPANY_HIERARCHY ah
+            WHERE
+                ah.company_id = (SELECT user_company_id FROM companydatabyuser)
+
+            UNION ALL
+
+            -- Recursive case: Add all child companies
+            SELECT
+                child.company_id,
+                child.parent_company_id,
+                child.company_type,
+                parent.level + 1
+            FROM
+                API_COMPANY_HIERARCHY child
+            JOIN
+                company_tree parent ON child.parent_company_id = parent.company_id
+        )
+        SELECT DISTINCT
+            company_id,
+            parent_company_id,
+            TRIM(company_type) as company_type
+        FROM
+            company_tree
+    ),
+    company_type_excluded AS (
+        SELECT *
+        FROM companyHierarchy
+        WHERE company_type NOT IN (
+            SELECT TRIM(unnested_type)
+            FROM companydatabyuser,
+                 unnest(company_type) AS unnested_type
+        )
+    )
+
+    -- final query for api_history Table
+    SELECT
+        ah.id as "ID",
+        ah.company_id as "CompanyID",
+        ah.message as "Message",
+        ah.engine_make as "Engine_make",
+        ah.insert_time as "Insert_Time",
+        ch.company_type as "Company_Type"
+    FROM
+        api_history ah
+    JOIN company_type_excluded ch ON ch.company_id = ah.company_id
+    WHERE
+        ah.id > _watermark
+        And ah.insert_time >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '7 days')
+       
+       AND (
+	         (SELECT cm.engine_make FROM companydatabyuser AS cm ) = 'ALL'
+	         OR (SELECT cm.engine_make FROM companydatabyuser AS cm) IS NULL
+	         OR ah.engine_make = (SELECT cm.engine_make FROM companydatabyuser AS cm)
+	         OR ah.engine_make IS NULL
+          )
+        
+    ORDER BY ah.id
+    LIMIT _record_limit;
+END;
+$$ LANGUAGE plpgsql;
+
+=========================NET Call Postgress Function=============
+
+
+ var parameters = new NpgsqlParameter[]
+     {
+         new NpgsqlParameter("@_username", NpgsqlTypes.NpgsqlDbType.Varchar) { Value = platformToken.User },
+         new NpgsqlParameter("@_watermark", NpgsqlTypes.NpgsqlDbType.Integer) { Value = watermark },
+         new NpgsqlParameter("@_record_limit", NpgsqlTypes.NpgsqlDbType.Integer) { Value = platformToken.BatchSize}
+     };
+     
+ DataTable result = await _iDatabaseHelper.ExecuteFunctionAsync("get_filtered_company_hierarchy_history", parameters);
+
+ var apiHistoryData = result.AsEnumerable()
+              .Select(row => Helper.MapDataRowToObject<APIHistory>(row))
+              .ToList();
+
+
+=================class Implementation==================================
+  public interface IDatabaseHelper
+  {
+      Task<DataTable> ExecuteFunctionAsync(string storedProcedureName, NpgsqlParameter[] parameters = null);
+ 
+  }
+  public class DatabaseHelper : IDatabaseHelper
+  {
+      private readonly string _connectionString;
+
+      public DatabaseHelper(IConfiguration configuration)
+      {
+          _connectionString = configuration.GetConnectionString("DbConnection");
+      }
+
+      public async Task<DataTable> ExecuteFunctionAsync(string functionName, NpgsqlParameter[] parameters = null)
+      {
+          using (var connection = new NpgsqlConnection(_connectionString))
+          {
+              await connection.OpenAsync();
+
+              using (var command = connection.CreateCommand())
+              {
+                  command.CommandType = CommandType.Text;
+
+                  // Build SQL function call like: SELECT * FROM function_name(@param1, @param2)
+                  string paramPlaceholders = parameters != null && parameters.Length > 0
+                      ? string.Join(", ", parameters.Select(p => p.ParameterName))
+                      : "";
+
+                  command.CommandText = $"SELECT * FROM {functionName}({paramPlaceholders});";
+
+                  if (parameters != null)
+                  {
+                      command.Parameters.AddRange(parameters);
+                  }
+
+                  using (var adapter = new NpgsqlDataAdapter(command))
+                  {
+                      DataTable dataTable = new DataTable();
+                      await Task.Run(() => adapter.Fill(dataTable));
+                      return dataTable;
+                  }
+              }
+          }
+      }
+
+
+    
+  }
+
+======================================Helper Class for DataTable to Object Mapping============================
+ 
+ public class Helper
+  {
+      public static T MapDataRowToObject<T>(DataRow row) where T : new()
+      {
+          T obj = new T();
+          foreach (var prop in typeof(T).GetProperties())
+          {
+              if (row.Table.Columns.Contains(prop.Name) && row[prop.Name] != DBNull.Value)
+              {
+                  var propType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
+                  object safeValue = Convert.ChangeType(row[prop.Name], propType);
+                  prop.SetValue(obj, safeValue);
+              }
+          }
+          return obj;
+      }
+
+  }
+
+
+
+
+
+
+
+
+
+
+

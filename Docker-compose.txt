@@ -1,0 +1,30 @@
+services:
+  dailypost-api:
+    image:  yunusalirony/dailypost-app:latest  # Replace with your actual Docker Hub image
+    container_name: billing-post
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "8000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=uat
+      - TZ=UTC
+    volumes:
+      - /var/daily-post/config/appsettings.uat.json:/app/Config/appsettings.uat.json
+      - /var/daily-post/logs:/app/Logs
+      - /var/daily-post/message:/app/Message
+
+
+
+
+Local server
+
+docker login
+docker tag daily-post yunusalirony/dailypost-app:latest
+docker build -t billing -f Dockerfile .
+docker push yunusalirony/dailypost-app:latest
+
+target server
+
+
+docker compose up -d --pull always

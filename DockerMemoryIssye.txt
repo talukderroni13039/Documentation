@@ -1,0 +1,7 @@
+On Windows 10, I deleted the WSL distro data manually from the docker folder in
+
+AppData\Local\Docker\wsl\data 
+after that just run the following command
+
+wsl --unregister docker-desktop-data
+and restart docker desktop it worked for me!
