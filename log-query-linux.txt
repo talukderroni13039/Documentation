@@ -1,0 +1,23 @@
+
+
+# If you literally mean first two complete sentences with last 5 records
+
+grep -i "Input from Master Data Topic" automated-billing-system.log | tail -n 5 | sed 's/\./\.\n/g' | head -n 10
+
+# first 1 records
+
+grep -i "Input from Master Data Topic" billing-event-processor.log | head -n 1 | sed 's/\./\.\n/g' | head -n 2
+
+
+
+# First 5 matches with line numbers
+grep -in "master" billing-event-processor.log | head -n 5
+
+# Show only the last 10 matches (if you want recent matches but from entire file)
+grep -i "master" billing-event-processor.log | tail -n 10
+
+# with offset number
+
+grep -i "Input from Master Data Topic" billing-event-processor.log | grep "288388" | sed 's/\./\.\n/g' | head -n 2
+
+

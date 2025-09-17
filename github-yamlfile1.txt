@@ -1,0 +1,90 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          latest
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: ./Source-Code
+        file: ./Source-Code/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy to Server
+    needs: build
+    runs-on: self-hosted  # This will use your uat-fe4-docker-02 runner
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Login to GitHub Container Registry
+      run: |
+        echo ${{ secrets.GITHUB_TOKEN }} | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+    
+    - name: Stop existing container
+      run: |
+        docker stop daily-post-app || true
+        docker rm daily-post-app || true
+      continue-on-error: true
+    
+    - name: Pull latest image
+      run: |
+        docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+    
+    - name: Deploy new container
+      run: |
+        docker run -d \
+          --name daily-post-app \
+          --restart unless-stopped \
+          -e ASPNETCORE_ENVIRONMENT=uat \
+          -v /var/daily-post/logs:/app/Logs \
+          -p 8000:8080 \
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+    
+    - name: Clean up old images
+      run: |
+        docker image prune -f
+        echo "🧹 Cleaned up old Docker images"

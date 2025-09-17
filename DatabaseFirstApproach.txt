@@ -13,7 +13,12 @@ ex:
 
  }
 
- dotnet ef dbcontext scaffold "Host=pgsql-1.nhorbcomm.internal;Port=5432;Username=agregorin;Password=dba-gregorin;Database=HE_Billing;" Npgsql.EntityFrameworkCore.PostgreSQL --output-dir Models --context EnricherDbContext --table sanctioned_country_emails --force
+ 
+dotnet ef dbcontext scaffold "Host=pgsql-1.nhorbcomm.internal;Port=5432;Username=agregorin;Password=dba-gregorin;Database=HE_Billing;" Npgsql.EntityFrameworkCore.PostgreSQL --output-dir Models --context ApplicationDbContext --force
+
+
+
+
 
 Scaffold-DbContext "Host=fe4-enrich-db.nhorbcomm.internal;Port=5432;Username=agregorin;Password=dba-gregorin;Database=HE_Enricher;" Npgsql.EntityFrameworkCore.PostgreSQL -OutputDir Infrastructure\Database\Models -Context ApplicationDbContext
 
